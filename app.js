@@ -166,6 +166,7 @@ function defaultState() {
     lastExam: null,
     activity: defaultActivity(),
     records: { correctRun: 0 }, // лучшая серия верных ответов подряд в тренировке
+    scenarioArchive: [],        // ответы на ситуации, которых больше нет в банке
   };
 }
 
@@ -203,6 +204,7 @@ function normalizeState(raw) {
         streak: toCount(p.streak),
         last: toCount(p.last),
         mistake: Boolean(p.mistake),
+        fp: typeof p.fp === 'string' ? p.fp : undefined,
       };
     }
   }
@@ -211,6 +213,7 @@ function normalizeState(raw) {
     for (const [id, s] of Object.entries(raw.scenarios)) {
       if (!isPlainObject(s)) continue;
       out.scenarios[id] = {
+        fp: typeof s.fp === 'string' ? s.fp : undefined,
         draft: typeof s.draft === 'string' ? s.draft : '',
         attempts: Array.isArray(s.attempts)
           ? s.attempts
@@ -234,6 +237,7 @@ function normalizeState(raw) {
       orders: ex.orders,
       answers: ex.answers,
       pos: toCount(ex.pos),
+      fps: isPlainObject(ex.fps) ? ex.fps : undefined,
     };
   }
 
@@ -242,6 +246,7 @@ function normalizeState(raw) {
   }
 
   if (isPlainObject(raw.records)) out.records.correctRun = toCount(raw.records.correctRun);
+  if (Array.isArray(raw.scenarioArchive)) out.scenarioArchive = raw.scenarioArchive.filter(isPlainObject);
 
   const a = raw.activity;
   if (isPlainObject(a)) {
@@ -343,6 +348,77 @@ function bossPhrase(st) {
 
 const STREAK_ICON = '<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21.5c3.9 0 6.5-2.7 6.5-6.4 0-3.3-2-5.6-3.6-7.6-.5 1.8-1.4 3-2.6 3.6.2-3.2-1.3-5.9-3.6-8.1.2 3-1.4 5.1-2.8 7.1-.9 1.4-1.4 3-1.4 4.9 0 3.8 2.6 6.5 6.5 6.5z"/><path d="M12 21.5c-1.7 0-2.8-1.2-2.8-2.8 0-1.8 1.4-2.9 2.3-4.3.9 1.1 3.3 2.4 3.3 4.4 0 1.5-1.1 2.7-2.8 2.7z"/></svg>';
 
+/* ================= Привязка прогресса к содержанию ================= */
+
+// Отпечаток вопроса — текст и правильный ответ. Поменяли их — это уже другой вопрос,
+// и прежняя статистика к нему не относится. Переехал на другой номер — статистика переезжает с ним.
+function fingerprint(text) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
+function questionFp(q) {
+  return fingerprint(q.question + '\n' + q.options[q.correct]);
+}
+
+function scenarioFp(sc) {
+  return fingerprint(sc.situation);
+}
+
+// Отпечатки банка 1.0–1.1: прогресс, записанный до появления отпечатков, сверяется с ними
+const LEGACY_QUESTION_FP = {1: '1yw355g', 2: 'hcwugo', 3: '1mckxb', 4: '18neotb', 5: '66gcql', 6: 'sz9vj8', 7: 'bj5ko3', 8: '9jjzb9', 9: 'cbpkkc', 10: 'r0cefl', 11: '1wwwx4l', 12: '119bzas', 13: '1f4xsre', 14: '18fi8cm', 15: '1ar3s9e', 16: 'g0ysiq', 17: 'mw1d4u', 18: 'fm9uph', 19: '1gkb05s', 20: '10xnnru', 21: '1gwxefc', 22: '1k4zgmq', 23: 'eeb8az', 24: 'd4ayfr', 25: 'pjca2z', 26: '14ojjk6', 27: '17fktja', 28: '1yr0qdr', 29: '18wmf3x', 30: '1h6sr88', 31: '70wrcm', 32: '15r9yw4', 33: '1b4h70y', 34: '1jguynh', 35: '17tgnhq', 36: '1bs893n', 37: '6swpjj', 38: 'ra0lsr', 39: '1vvu6m6', 40: '8vsli9', 41: '1vrfdw3', 42: '1ug0qex', 43: 'fd0hx3', 44: 'si6e5p', 45: '1894lgr', 46: '14b7sj5', 47: '1swac8u', 48: '1rrk4k5', 49: '95umg3', 50: '1dtw42t', 51: '1hs2lyn', 52: 'wblmyz', 53: '1hnko4n', 54: 'qtb7ta', 55: '1bpsotx', 56: '1s52hww', 57: 'c9r8jk', 58: '2d896k', 59: '1nwhcj9', 60: '1hqecus', 61: 'qahh4j', 62: 'wwh9a', 63: '1qi8vey', 64: '1aq90ag', 65: '1s8m2u3', 66: '1nm4drl', 67: 'wnory3', 68: 'vsobt3', 69: '5006c5', 70: '1ekte3i', 71: '1uk7c34', 72: 'mkjrq0', 73: '1c8716r', 74: '10ei4d0', 75: 'jc2crd', 76: '14gimtk', 77: '4jmlvi', 78: '7gyr9d', 79: 'xt70wd', 80: 'uylul3', 81: '1yu3r71', 82: '17gf45r', 83: '143a993', 84: '1e4bzpb', 85: 'mmkvsz', 86: 'jxfhci', 87: 'nuwyfh', 88: 'puxnjy', 89: '8v9rjw', 90: '1dara4x', 91: '107bydm', 92: '12gp1z', 93: '1hmigif', 94: '10684nw', 95: '7p5u4', 96: 'wjmko', 97: '1m23jp1', 98: 'wglis4', 99: '15jp1f5', 100: '1fjexqo', 101: '1ladon7', 102: 't10kva', 103: '191cddd'};
+const LEGACY_SCENARIO_FP = {s1: '18qkcde', s2: 'k9g7yf', s3: '10hnwan', s4: '1ve6gei', s5: '1wr6q1s', s6: 'hs9y0w', s7: '1uxeqqz', s8: 'cr7hq4', s9: 'dikipi', s10: '1ivh5v5', s11: 'l2jhq1', s12: '140hrps', s13: '11h2l3n', s14: '3349m7'};
+
+function migrateToBank() {
+  const qFpById = new Map(bank.questions.map((q) => [q.id, questionFp(q)]));
+  const qIdByFp = new Map(bank.questions.map((q) => [questionFp(q), q.id]));
+  const resolveQ = (id, fp) => (fp && qFpById.get(String(id)) === fp ? String(id) : (fp && qIdByFp.get(fp)) || null);
+
+  const progress = {};
+  for (const [id, p] of Object.entries(state.progress)) {
+    const target = resolveQ(id, p.fp || LEGACY_QUESTION_FP[id]);
+    if (!target || (progress[target] && progress[target].last >= p.last)) continue;
+    progress[target] = { ...p, fp: qFpById.get(target) };
+  }
+  state.progress = progress;
+
+  if (state.lastExam) {
+    for (const item of state.lastExam.items) {
+      const target = resolveQ(item.id, item.fp || LEGACY_QUESTION_FP[item.id]);
+      if (target) {
+        item.id = target;
+        item.fp = qFpById.get(target);
+      } else {
+        item.gone = true; // вопроса больше нет — в разборе не показываем
+      }
+    }
+  }
+
+  // Начатый экзамен по изменившимся вопросам продолжать нельзя — ответы относились к другим вариантам
+  if (state.exam) {
+    const fps = state.exam.fps || {};
+    const ids = state.exam.ids.map((id) => resolveQ(id, fps[id] || LEGACY_QUESTION_FP[id]));
+    if (ids.some((id, i) => id !== state.exam.ids[i])) state.exam = null;
+    else state.exam.fps = Object.fromEntries(ids.map((id) => [id, qFpById.get(id)]));
+  }
+
+  const sFpById = new Map(bank.scenarios.map((sc) => [sc.id, scenarioFp(sc)]));
+  const sIdByFp = new Map(bank.scenarios.map((sc) => [scenarioFp(sc), sc.id]));
+  const scenarios = {};
+  for (const [id, d] of Object.entries(state.scenarios)) {
+    const fp = d.fp || LEGACY_SCENARIO_FP[id];
+    const target = fp && sFpById.get(id) === fp ? id : (fp && sIdByFp.get(fp)) || null;
+    if (target && !scenarios[target]) scenarios[target] = { ...d, fp: sFpById.get(target) };
+    else if (d.draft || d.attempts.length) state.scenarioArchive.push({ ...d, oldId: id }); // свои ответы не теряем
+  }
+  state.scenarios = scenarios;
+  save();
+}
+
 function getProgress(id) {
   return state.progress[String(id)] || { shown: 0, correct: 0, streak: 0, last: 0, mistake: false };
 }
@@ -359,6 +435,7 @@ function recordAnswer(id, isCorrect) {
     p.mistake = true;
   }
   p.last = Date.now();
+  p.fp = questionFp(questionsById.get(String(id)));
   state.progress[String(id)] = p;
 }
 
@@ -390,6 +467,8 @@ function scenarioData(id) {
 
 function ensureScenarioData(id) {
   if (!state.scenarios[id]) state.scenarios[id] = { draft: '', attempts: [] };
+  const sc = bank && bank.scenarios.find((x) => x.id === id);
+  if (sc) state.scenarios[id].fp = scenarioFp(sc);
   return state.scenarios[id];
 }
 
@@ -461,6 +540,7 @@ async function unlockWithPassword(env, password) {
 function setBank(value) {
   bank = value;
   indexBank();
+  migrateToBank();
   sanitizeExam();
   if (state.exam && examRemaining() <= 0) {
     finishExam(true);
@@ -496,6 +576,7 @@ function normalizeBank(raw) {
       correct: q.correct,
       explanation: typeof q.explanation === 'string' ? q.explanation : '',
       source: typeof q.source === 'string' ? q.source : '',
+      internal: q.internal === true,
     });
   }
 
@@ -506,6 +587,7 @@ function normalizeBank(raw) {
       title: typeof s.title === 'string' ? s.title : '',
       situation: s.situation,
       answer: Array.isArray(s.answer) ? s.answer.map(String) : [],
+      internal: s.internal === true,
     }));
 
   return {
@@ -600,6 +682,8 @@ function toast(text) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { toastEl.hidden = true; }, 2600);
 }
+
+const INTERNAL_BADGE = '<span class="tag tag-internal">Внутренний документ ГУ</span>';
 
 function emptyState(text) {
   return `<p class="empty-state">${esc(text)}</p>`;
@@ -697,7 +781,10 @@ function renderTrain(key = 'all') {
         <span class="run-label">рекорд верных подряд</span>
       </div>
     </div>
-    ${categoryTitle(q.category) ? `<span class="tag">${esc(categoryTitle(q.category))}</span>` : ''}
+    <div class="tags">
+      ${categoryTitle(q.category) ? `<span class="tag">${esc(categoryTitle(q.category))}</span>` : ''}
+      ${q.internal ? INTERNAL_BADGE : ''}
+    </div>
     <h2 class="question-text">${esc(q.question)}</h2>
     <div class="options">${options}</div>
     ${feedback}`;
@@ -750,7 +837,8 @@ function startExam() {
   const ids = shuffle(bank.questions.map((q) => q.id)).slice(0, examSize());
   const orders = {};
   for (const id of ids) orders[id] = shuffle(range(questionsById.get(id).options.length));
-  state.exam = { startedAt: Date.now(), ids, orders, answers: {}, pos: 0 };
+  const fps = Object.fromEntries(ids.map((id) => [id, questionFp(questionsById.get(id))]));
+  state.exam = { startedAt: Date.now(), ids, orders, answers: {}, pos: 0, fps };
   save();
 }
 
@@ -762,7 +850,7 @@ function finishExam(timeout) {
     const chosen = Number.isInteger(ex.answers[id]) ? ex.answers[id] : null;
     const ok = chosen === q.correct;
     recordAnswer(id, ok);
-    return { id, chosen, ok };
+    return { id, chosen, ok, fp: questionFp(q) };
   });
   const score = items.filter((i) => i.ok).length;
   const threshold = effectiveThreshold(items.length);
@@ -852,7 +940,7 @@ function renderExamResult() {
   const r = state.lastExam;
   if (!r) return { title: 'Результат', back: '#/', html: emptyState('Экзамен ещё не сдавался.') };
 
-  const errors = r.items.filter((i) => !i.ok && questionsById.has(String(i.id)));
+  const errors = r.items.filter((i) => !i.ok && !i.gone && questionsById.has(String(i.id)));
   const errorsHtml = errors.map((i) => {
     const q = questionsById.get(String(i.id));
     const yours = Number.isInteger(i.chosen) && q.options[i.chosen] != null ? q.options[i.chosen] : null;
@@ -1081,6 +1169,7 @@ function renderScenarios(id) {
     return `
       <a class="card list-item" href="#/scenarios/${encodeURIComponent(s.id)}">
         <span class="list-title">${esc(s.title || 'Ситуация')}</span>
+        ${s.internal ? `<span>${INTERNAL_BADGE}</span>` : ''}
         <span class="clamp">${esc(s.situation)}</span>
         <span>${status}</span>
       </a>`;
@@ -1118,6 +1207,7 @@ function renderScenario(id) {
     title: s.title || 'Ситуация',
     back: '#/scenarios',
     html: `
+      ${s.internal ? `<div class="tags">${INTERNAL_BADGE}</div>` : ''}
       <section class="card"><p class="situation-text">${esc(s.situation)}</p></section>
       <label class="field-label" for="scenario-answer">Ваш ответ</label>
       <textarea id="scenario-answer" class="textarea" data-scenario="${esc(id)}" placeholder="Действия, сроки, документы">${esc(data.draft)}</textarea>
@@ -1318,6 +1408,7 @@ async function importBackup(file) {
   state = normalizeState(payload.state);
   state.exam = null;
   session = null;
+  if (bank) migrateToBank();
   await save();
   toast('Прогресс восстановлен');
   render();

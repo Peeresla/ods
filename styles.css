@@ -544,6 +544,12 @@ a.list-item.is-pressed {
   100% { transform: scale(1); }
 }
 
+.tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+
+.tag-internal { color: var(--accent); background: var(--accent-bg); font-weight: 600; }
+
+.tags + .question-text { margin-top: 6px; }
+
 .question-text { margin: 18px 0 16px; font-size: 20px; font-weight: 600; line-height: 1.35; }
 
 .options { display: grid; gap: 10px; }
