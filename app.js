@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const APP_TITLE = 'Тренажёр МЧС';
 const STATE_SCHEMA = 1;
 const EXAM_SIZE = 20;
@@ -1195,8 +1195,39 @@ function parseRoute() {
   });
 }
 
-function render(scrollTop) {
+// Глубина экрана: главная — 0, разделы — 1, вложенные экраны — 2.
+// По ней понятно, вперёд или назад идёт переход.
+function routeDepth() {
+  return parseRoute().length;
+}
+
+let currentDepth = routeDepth();
+
+// transition: 'forward' / 'back' — смена экрана, 'next' / 'prev' — смена вопроса, 'fade' — обновление экрана
+function render(scrollTop, transition) {
+  const animate = transition && !reducedMotion.matches;
+  if (animate && document.startViewTransition) {
+    document.documentElement.dataset.nav = transition;
+    try {
+      const t = document.startViewTransition(() => paint(scrollTop));
+      t.finished.finally(() => { delete document.documentElement.dataset.nav; });
+      return;
+    } catch (e) {
+      delete document.documentElement.dataset.nav;
+    }
+  }
+  paint(scrollTop);
+  if (animate) {
+    // Запасной вариант для браузеров без View Transitions: новый экран плавно въезжает
+    mainEl.classList.remove('enter-forward', 'enter-back', 'enter-next', 'enter-prev', 'enter-fade');
+    void mainEl.offsetWidth;
+    mainEl.classList.add('enter-' + transition);
+  }
+}
+
+function paint(scrollTop) {
   const [screen = '', arg] = parseRoute();
+  currentDepth = routeDepth();
   let renderFn = SCREENS[screen] || renderHome;
   if (lockedBank) renderFn = renderUnlock;
   else if (!bank && screen !== 'settings') renderFn = renderHome;
@@ -1214,7 +1245,7 @@ function render(scrollTop) {
 }
 
 function navigate(hash) {
-  if (location.hash === hash) render(true);
+  if (location.hash === hash) render(true, 'fade');
   else location.hash = hash;
 }
 
@@ -1303,11 +1334,11 @@ const ACTIONS = {
   'train-next'() {
     session.pos += 1;
     session.current = null;
-    render(true);
+    render(true, 'next');
   },
   'train-restart'() {
     session = null;
-    render(true);
+    render(true, 'fade');
   },
   'go-mistakes-training'() {
     session = null;
@@ -1315,7 +1346,7 @@ const ACTIONS = {
   },
   'exam-start'() {
     startExam();
-    render(true);
+    render(true, 'next');
   },
   'exam-choose'(d) {
     if (!state.exam) return;
@@ -1332,13 +1363,13 @@ const ACTIONS = {
     if (!state.exam) return;
     state.exam.pos = Math.min(state.exam.pos + 1, state.exam.ids.length - 1);
     save();
-    render(true);
+    render(true, 'next');
   },
   'exam-prev'() {
     if (!state.exam) return;
     state.exam.pos = Math.max(state.exam.pos - 1, 0);
     save();
-    render(true);
+    render(true, 'prev');
   },
   'exam-finish'() {
     if (!state.exam) return;
@@ -1394,7 +1425,7 @@ const ACTIONS = {
 
 // Переходы на другой экран выполняются после короткой анимации нажатия —
 // иначе экран сменяется мгновенно и не видно, куда нажал.
-const PRESS_DELAY_MS = 200;
+const PRESS_DELAY_MS = 140;
 const DELAYED_ACTIONS = new Set(['train-next', 'train-restart', 'go-mistakes-training', 'exam-start', 'exam-next', 'exam-prev', 'scenario-reveal']);
 let pressPending = false;
 
@@ -1470,7 +1501,7 @@ document.addEventListener('submit', async (e) => {
   }
   lockedBank = null;
   setBank(result);
-  render(true);
+  render(true, 'fade');
 });
 
 /* ================= Отклик на нажатия ================= */
@@ -1544,7 +1575,12 @@ importInput.addEventListener('change', () => {
 
 window.addEventListener('hashchange', () => {
   revealedScenarios.clear();
-  render(true);
+  const depth = routeDepth();
+  render(true, depth > currentDepth ? 'forward' : depth < currentDepth ? 'back' : 'fade');
+});
+
+mainEl.addEventListener('animationend', (e) => {
+  if (e.target === mainEl) mainEl.classList.remove('enter-forward', 'enter-back', 'enter-next', 'enter-prev', 'enter-fade');
 });
 
 window.addEventListener('pagehide', () => { if (saveTimer) save(); });
@@ -1560,6 +1596,18 @@ document.addEventListener('visibilitychange', () => {
 });
 
 /* ================= Запуск ================= */
+
+const SPLASH_MIN_MS = 850; // роза ветров успевает прорисоваться и заполниться
+
+function hideSplash() {
+  const el = document.getElementById('splash');
+  if (!el) return;
+  const wait = reducedMotion.matches ? 0 : Math.max(0, SPLASH_MIN_MS - performance.now());
+  setTimeout(() => {
+    el.classList.add('is-hidden');
+    setTimeout(() => el.remove(), 500);
+  }, wait);
+}
 
 async function init() {
   await storage.init();
@@ -1588,4 +1636,4 @@ async function init() {
   }
 }
 
-init();
+init().catch((e) => console.error(e)).finally(hideSplash);

@@ -71,6 +71,7 @@ a { color: inherit; }
 /* ---------- Шапка ---------- */
 
 .app-header {
+  view-transition-name: app-header;
   position: sticky;
   top: 0;
   z-index: 10;
@@ -317,6 +318,7 @@ a.list-item.is-pressed {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }
@@ -673,6 +675,7 @@ a.list-item.is-pressed {
 /* ---------- Уведомление ---------- */
 
 .toast {
+  view-transition-name: toast;
   position: fixed;
   left: 50%;
   bottom: calc(20px + env(safe-area-inset-bottom));
@@ -692,3 +695,125 @@ a.list-item.is-pressed {
   from { opacity: 0; transform: translate(-50%, 8px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
+
+/* ---------- Переходы между экранами ---------- */
+
+/* Новый экран въезжает справа, старый уходит влево — как в iOS. Шапка остаётся на месте. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  mix-blend-mode: normal;
+  animation-duration: 0.34s;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation-fill-mode: both;
+}
+
+::view-transition-group(app-header) { animation-duration: 0.25s; }
+
+:root[data-nav="forward"]::view-transition-old(root) { animation-name: nav-out-left; }
+:root[data-nav="forward"]::view-transition-new(root) { animation-name: nav-in-right; box-shadow: -10px 0 30px rgba(10, 19, 37, 0.18); }
+
+:root[data-nav="back"]::view-transition-old(root) { animation-name: nav-out-right; z-index: 1; box-shadow: -10px 0 30px rgba(10, 19, 37, 0.18); }
+:root[data-nav="back"]::view-transition-new(root) { animation-name: nav-in-left; }
+
+/* Следующий вопрос — короткая подвижка с растворением */
+:root[data-nav="next"]::view-transition-old(root) { animation: nudge-out-left 0.13s ease-in both; }
+:root[data-nav="next"]::view-transition-new(root) { animation: nudge-in-right 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) 0.1s both; }
+:root[data-nav="prev"]::view-transition-old(root) { animation: nudge-out-right 0.13s ease-in both; }
+:root[data-nav="prev"]::view-transition-new(root) { animation: nudge-in-left 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) 0.1s both; }
+
+:root[data-nav="fade"]::view-transition-old(root) { animation: fade-out 0.18s ease-in both; }
+:root[data-nav="fade"]::view-transition-new(root) { animation: fade-in 0.25s ease-out both; }
+
+@keyframes nav-in-right { from { transform: translateX(100%); } }
+@keyframes nav-out-left { to { transform: translateX(-25%); opacity: 0.6; } }
+@keyframes nav-out-right { to { transform: translateX(100%); } }
+@keyframes nav-in-left { from { transform: translateX(-25%); opacity: 0.6; } }
+@keyframes nudge-in-right { from { transform: translateX(40px); opacity: 0; } }
+@keyframes nudge-out-left { to { transform: translateX(-40px); opacity: 0; } }
+@keyframes nudge-in-left { from { transform: translateX(-40px); opacity: 0; } }
+@keyframes nudge-out-right { to { transform: translateX(40px); opacity: 0; } }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes fade-out { to { opacity: 0; } }
+
+/* Запасной вариант для браузеров без View Transitions — анимируется только новый экран */
+.app-main.enter-forward,
+.app-main.enter-next { animation: nudge-in-right 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.app-main.enter-back,
+.app-main.enter-prev { animation: nudge-in-left 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.app-main.enter-fade { animation: fade-in 0.25s ease-out; }
+
+/* ---------- Загрузка: роза ветров ---------- */
+
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  color: #fff;
+  background: var(--navy);
+  transition: opacity 0.35s ease, visibility 0.35s;
+}
+
+.splash.is-hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.splash-rose {
+  position: relative;
+  width: 128px;
+  height: 128px;
+  transition: transform 0.35s ease;
+  animation: rose-breathe 1.4s ease-in-out 0.9s infinite;
+}
+
+.splash.is-hidden .splash-rose { transform: scale(1.12); }
+
+.splash-rose svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+/* Заполнение снизу вверх */
+.rose-fill {
+  -webkit-clip-path: inset(100% 0 0 0);
+  clip-path: inset(100% 0 0 0);
+  animation: rose-fill 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.2s forwards;
+}
+
+.rose-light { fill: #ff9a3d; }
+.rose-dark { fill: #e0670f; }
+
+/* Контур прорисовывается линией */
+.rose-outline path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: rose-draw 0.5s ease-out forwards;
+}
+
+.splash-title {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  opacity: 0;
+  animation: fade-up 0.4s ease-out 0.35s forwards;
+}
+
+@keyframes rose-fill {
+  to {
+    -webkit-clip-path: inset(0 0 0 0);
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes rose-draw { to { stroke-dashoffset: 0; } }
+
+@keyframes rose-breathe { 50% { transform: scale(1.05); } }
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 0.9; transform: none; }
+}
+
