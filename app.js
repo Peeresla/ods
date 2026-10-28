@@ -1,12 +1,14 @@
 'use strict';
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
+const APP_TITLE = 'Тренажёр МЧС';
 const STATE_SCHEMA = 1;
 const EXAM_SIZE = 20;
 const EXAM_DURATION_MS = 20 * 60 * 1000;
 const DEFAULT_PASS_THRESHOLD = 18;
 const LEARNED_STREAK = 2; // столько правильных подряд — вопрос выучен и уходит из «Ошибок»
 const GRADES = { ok: 'Справился', partial: 'Частично', fail: 'Не справился' };
+const MAX_MISSED_SHADE = 10; // столько пропущенных дней и больше — красный цвет
 
 const mainEl = document.getElementById('main');
 const titleEl = document.getElementById('header-title');
@@ -160,7 +162,13 @@ function defaultState() {
     settings: { passThreshold: DEFAULT_PASS_THRESHOLD },
     exam: null,
     lastExam: null,
+    activity: defaultActivity(),
   };
+}
+
+function defaultActivity() {
+  // lastDay — последний день захода (ГГГГ-ММ-ДД), missed — сколько дней пропущено перед этим заходом
+  return { lastDay: null, streak: 0, best: 0, missed: 0, first: true };
 }
 
 function toCount(v) {
@@ -229,8 +237,72 @@ function normalizeState(raw) {
     out.lastExam = raw.lastExam;
   }
 
+  const a = raw.activity;
+  if (isPlainObject(a) && typeof a.lastDay === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.lastDay)) {
+    out.activity = {
+      lastDay: a.lastDay,
+      streak: toCount(a.streak),
+      best: toCount(a.best),
+      missed: toCount(a.missed),
+      first: Boolean(a.first),
+    };
+  }
+
   return out;
 }
+
+/* ================= Серия дней ================= */
+
+function dayKey(date) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function daysBetween(fromKey, toKey) {
+  const toUtc = (key) => {
+    const [y, m, d] = key.split('-').map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  return Math.round((toUtc(toKey) - toUtc(fromKey)) / 86400000);
+}
+
+// Отмечает заход сегодня. Возвращает true, если начался новый день.
+function registerVisit() {
+  const today = dayKey(new Date());
+  const a = state.activity;
+  if (a.lastDay === today) return false;
+
+  const gap = a.lastDay ? daysBetween(a.lastDay, today) : null;
+  if (gap !== null && gap < 0) return false; // часы на устройстве переведены назад
+  a.first = gap === null;
+  a.streak = gap === 1 ? a.streak + 1 : 1;
+  a.missed = gap === null ? 0 : gap - 1;
+  a.best = Math.max(a.best, a.streak);
+  a.lastDay = today;
+  save();
+  return true;
+}
+
+// Слова начальника ЦУКС: по серии, если заходите каждый день, и по числу пропущенных дней
+function bossPhrase(a) {
+  const days = (n) => `${n} ${plural(n, ['день', 'дня', 'дней'])}`;
+  if (a.first) return 'Заступаешь на первое дежурство. Нормативы сами себя не выучат — приступай.';
+  if (a.missed === 0) {
+    const tomorrow = `Завтра будет ${days(a.streak + 1)} подряд — не сорви.`;
+    if (a.streak >= 30) return `Месяц без пропусков. Такого дежурного хоть сейчас в старшие. ${tomorrow}`;
+    if (a.streak >= 14) return `Две недели без пропусков. На разборе поставлю тебя в пример. ${tomorrow}`;
+    if (a.streak >= 7) return `Неделя без пропусков. Вот это оперативная готовность. ${tomorrow}`;
+    if (a.streak >= 4) return `Заступаешь стабильно. Так и докладывай — без замечаний. ${tomorrow}`;
+    return `Хорошее начало, но один день — не система. ${tomorrow}`;
+  }
+  if (a.missed === 1) return 'Вчера тебя не было на связи. Серия обнулилась — восстанавливай, пока не вошло в привычку.';
+  if (a.missed <= 3) return `${days(a.missed)} тишины. В ЦУКС так не работают — догоняй.`;
+  if (a.missed <= 6) return `Тебя не было ${days(a.missed)}. Обстановка меняется каждые сутки, а ты — нет.`;
+  if (a.missed < MAX_MISSED_SHADE) return `${days(a.missed)} без тренировки. Готовь объяснительную или садись за вопросы.`;
+  return `${days(a.missed)} без доклада. Я уже решил, что ты сменил место службы. Срочно за тренажёр.`;
+}
+
+const STREAK_ICON = '<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21.5c3.9 0 6.5-2.7 6.5-6.4 0-3.3-2-5.6-3.6-7.6-.5 1.8-1.4 3-2.6 3.6.2-3.2-1.3-5.9-3.6-8.1.2 3-1.4 5.1-2.8 7.1-.9 1.4-1.4 3-1.4 4.9 0 3.8 2.6 6.5 6.5 6.5z"/><path d="M12 21.5c-1.7 0-2.8-1.2-2.8-2.8 0-1.8 1.4-2.9 2.3-4.3.9 1.1 3.3 2.4 3.3 4.4 0 1.5-1.1 2.7-2.8 2.7z"/></svg>';
 
 function getProgress(id) {
   return state.progress[String(id)] || { shown: 0, correct: 0, streak: 0, last: 0, mistake: false };
@@ -355,6 +427,7 @@ function setBank(value) {
     finishExam(true);
     toast('Время экзамена истекло — результат сохранён');
   }
+  registerVisit();
 }
 
 function normalizeBank(raw) {
@@ -803,7 +876,7 @@ function menuIcon(name) {
 function renderHome() {
   if (!bank) {
     return {
-      title: 'ОДС — нормативка',
+      title: APP_TITLE,
       html: `
         <div class="notice">Не удалось загрузить вопросы. Откройте приложение при подключении к интернету.</div>
         <nav class="menu"><a class="menu-item" href="#/settings">${menuIcon('settings')}<span class="menu-title">Настройки</span><span class="menu-sub">Резервная копия и восстановление</span></a></nav>`,
@@ -811,6 +884,7 @@ function renderHome() {
   }
 
   const s = statsFor(bank.questions.map((q) => q.id));
+  const a = state.activity;
   const mistakes = mistakeIds().length;
   const storageWarning = storage.kind === 'memory'
     ? '<div class="notice">Хранилище браузера недоступно (например, частный режим) — прогресс не сохранится после закрытия.</div>'
@@ -822,16 +896,34 @@ function renderHome() {
     </section>` : '';
 
   return {
-    title: 'ОДС — нормативка',
+    title: APP_TITLE,
     html: `
       ${storageWarning}
-      <section class="card stats-card">
-        <div class="stats-main">
-          <span class="stats-value">${percentText(s.percent)}</span>
-          <span class="stats-label">правильных ответов</span>
+      <section class="card stats-card status-${Math.min(a.missed, MAX_MISSED_SHADE)}">
+        <div class="streak">
+          <span class="streak-icon">${STREAK_ICON}</span>
+          <div class="streak-main">
+            <span class="streak-value">${a.streak}</span>
+            <span class="streak-label">${plural(a.streak, ['день', 'дня', 'дней'])} подряд</span>
+          </div>
+          <span class="streak-best">Рекорд<br><strong>${a.best}</strong></span>
+        </div>
+        <blockquote class="boss-quote">
+          <p>${esc(bossPhrase(a))}</p>
+          <cite>— Начальник ЦУКС</cite>
+        </blockquote>
+        <div class="stats-row">
+          <div class="stats-item">
+            <span class="stats-value">${s.percent == null ? 0 : s.percent}%</span>
+            <span class="stats-label">правильных ответов</span>
+          </div>
+          <div class="stats-item">
+            <span class="stats-value">${s.learned}<small> / ${s.total}</small></span>
+            <span class="stats-label">выучено вопросов</span>
+          </div>
         </div>
         <progress class="progress" max="${s.total || 1}" value="${s.learned}"></progress>
-        <p class="muted">Выучено ${s.learned} из ${s.total} · ответов дано: ${s.shown}</p>
+        <p class="stats-sub">Ответов дано: ${s.shown}</p>
       </section>
       ${examCard ? `<div class="spaced">${examCard}</div>` : ''}
       <nav class="menu">
@@ -869,7 +961,7 @@ function renderHome() {
 
 function renderUnlock() {
   return {
-    title: 'ОДС — нормативка',
+    title: APP_TITLE,
     html: `
       <form class="card" id="unlock-form">
         <h2>Вход</h2>
@@ -1245,6 +1337,7 @@ const ACTIONS = {
     if (!confirm('Сбросить весь прогресс: статистику, ошибки, ответы на ситуации и результаты экзамена? Отменить будет нельзя.')) return;
     state = { ...defaultState(), settings: state.settings };
     session = null;
+    registerVisit();
     save();
     toast('Прогресс сброшен');
     render();
@@ -1317,6 +1410,7 @@ document.addEventListener('visibilitychange', () => {
     if (saveTimer) save();
   } else {
     tick();
+    if (bank && !lockedBank && registerVisit() && parseRoute().length === 0) render();
   }
 });
 
