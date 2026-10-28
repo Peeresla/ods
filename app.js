@@ -786,13 +786,27 @@ function tick() {
 
 /* ================= Экраны ================= */
 
+// Контурные иконки плиток главного экрана: основной цвет — currentColor, акцентная деталь — класс icon-accent
+const MENU_ICONS = {
+  train: '<path d="M8 3h9.5A2.5 2.5 0 0 1 20 5.5V16"/><rect x="4" y="6" width="13" height="15" rx="2.5"/><path class="icon-accent" d="M7.5 13.5l2.5 2.5 4-4.5"/>',
+  exam: '<circle cx="12" cy="13.5" r="7.5"/><path d="M10 2.5h4M12 2.5V6M18.5 7l1.5-1.5"/><path class="icon-accent" d="M12 10v3.5l2.5 2"/>',
+  mistakes: '<path d="M10.3 4.4 3 17.1A2 2 0 0 0 4.7 20h14.6a2 2 0 0 0 1.7-2.9L13.7 4.4a2 2 0 0 0-3.4 0z"/><path class="icon-accent" d="M12 9.5v4M12 16.8h.01"/>',
+  scenarios: '<path d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7l-4.5 3.5V17H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path class="icon-accent" d="M8 10.5h.01M12 10.5h.01M16 10.5h.01"/>',
+  docs: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path class="icon-accent" d="M8.5 12.5h7M8.5 16h5"/>',
+  settings: '<circle class="icon-accent" cx="12" cy="12" r="3"/><path d="M12 2.5v2.2M12 19.3v2.2M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6"/><circle cx="12" cy="12" r="6.5"/>',
+};
+
+function menuIcon(name) {
+  return `<span class="menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${MENU_ICONS[name]}</svg></span>`;
+}
+
 function renderHome() {
   if (!bank) {
     return {
       title: 'ОДС — нормативка',
       html: `
         <div class="notice">Не удалось загрузить вопросы. Откройте приложение при подключении к интернету.</div>
-        <nav class="menu"><a class="menu-item" href="#/settings"><span class="menu-title">Настройки</span><span class="menu-sub">Резервная копия и восстановление</span></a></nav>`,
+        <nav class="menu"><a class="menu-item" href="#/settings">${menuIcon('settings')}<span class="menu-title">Настройки</span><span class="menu-sub">Резервная копия и восстановление</span></a></nav>`,
     };
   }
 
@@ -822,24 +836,29 @@ function renderHome() {
       ${examCard ? `<div class="spaced">${examCard}</div>` : ''}
       <nav class="menu">
         <a class="menu-item" href="#/train/all">
+          ${menuIcon('train')}
           <span class="menu-title">Тренировка</span>
           <span class="menu-sub">Все вопросы: сначала ошибки и давно не повторённые</span>
         </a>
         <a class="menu-item" href="#/exam">
+          ${menuIcon('exam')}
           <span class="menu-title">Экзамен</span>
           <span class="menu-sub">${examSize()} вопросов · ${EXAM_DURATION_MS / 60000} минут</span>
         </a>
         <a class="menu-item" href="#/mistakes">
+          ${menuIcon('mistakes')}
           <span class="menu-title">Ошибки</span>
           <span class="menu-sub">Уходят после ${LEARNED_STREAK} правильных ответов подряд</span>
           <span class="badge${mistakes ? '' : ' badge-muted'}">${mistakes}</span>
         </a>
         <a class="menu-item" href="#/scenarios">
+          ${menuIcon('scenarios')}
           <span class="menu-title">Ситуации</span>
           <span class="menu-sub">Свой ответ и сверка с эталоном</span>
           <span class="badge badge-muted">${bank.scenarios.length}</span>
         </a>
         <a class="menu-item" href="#/docs">
+          ${menuIcon('docs')}
           <span class="menu-title">По документам</span>
           <span class="menu-sub">Прогресс по каждому разделу</span>
           <span class="badge badge-muted">${bank.categories.length}</span>
