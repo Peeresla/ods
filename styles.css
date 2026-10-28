@@ -241,7 +241,16 @@ a { color: inherit; }
   background: var(--status-bg);
 }
 
-.streak-main { display: flex; align-items: baseline; gap: 8px; flex: 1; min-width: 0; }
+.streak-main { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+
+.streak-count { display: flex; align-items: baseline; gap: 8px; }
+
+.streak-today { font-size: 14px; font-weight: 600; color: var(--status); }
+
+/* Норма на сегодня не выполнена — огонёк погашен, как в Duolingo */
+.is-pending .streak-icon { color: var(--muted); background: var(--surface-2); }
+.is-pending .streak-value { color: var(--muted); }
+.is-pending .streak-today { color: var(--text); }
 
 .streak-value { font-size: 44px; font-weight: 800; line-height: 1; color: var(--status); font-variant-numeric: tabular-nums; }
 

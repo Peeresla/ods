@@ -9,6 +9,7 @@ const DEFAULT_PASS_THRESHOLD = 18;
 const LEARNED_STREAK = 2; // столько правильных подряд — вопрос выучен и уходит из «Ошибок»
 const GRADES = { ok: 'Справился', partial: 'Частично', fail: 'Не справился' };
 const MAX_MISSED_SHADE = 10; // столько пропущенных дней и больше — красный цвет
+const DAILY_GOAL = 10;       // ответов в день, чтобы день засчитался в серию (как урок в Duolingo)
 
 const mainEl = document.getElementById('main');
 const titleEl = document.getElementById('header-title');
@@ -167,8 +168,9 @@ function defaultState() {
 }
 
 function defaultActivity() {
-  // lastDay — последний день захода (ГГГГ-ММ-ДД), missed — сколько дней пропущено перед этим заходом
-  return { lastDay: null, streak: 0, best: 0, missed: 0, first: true };
+  // lastDone — последний день (ГГГГ-ММ-ДД) с выполненной нормой, streak — серия, закончившаяся этим днём;
+  // today и todayCount — сколько ответов засчитано в норму сегодня
+  return { lastDone: null, streak: 0, best: 0, today: null, todayCount: 0 };
 }
 
 function toCount(v) {
@@ -238,13 +240,14 @@ function normalizeState(raw) {
   }
 
   const a = raw.activity;
-  if (isPlainObject(a) && typeof a.lastDay === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.lastDay)) {
+  if (isPlainObject(a)) {
+    const day = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
     out.activity = {
-      lastDay: a.lastDay,
+      lastDone: day(a.lastDone),
       streak: toCount(a.streak),
       best: toCount(a.best),
-      missed: toCount(a.missed),
-      first: Boolean(a.first),
+      today: day(a.today),
+      todayCount: toCount(a.todayCount),
     };
   }
 
@@ -266,40 +269,72 @@ function daysBetween(fromKey, toKey) {
   return Math.round((toUtc(toKey) - toUtc(fromKey)) / 86400000);
 }
 
-// Отмечает заход сегодня. Возвращает true, если начался новый день.
-function registerVisit() {
-  const today = dayKey(new Date());
+// Серия по правилам Duolingo: день засчитывается, когда выполнена дневная норма;
+// пропущенный день без нормы обнуляет серию. Норма сегодня не выполнена — серия ещё жива до полуночи.
+function streakStatus() {
   const a = state.activity;
-  if (a.lastDay === today) return false;
+  const today = dayKey(new Date());
+  const gap = a.lastDone ? Math.max(0, daysBetween(a.lastDone, today)) : null;
+  const todayCount = a.today === today ? a.todayCount : 0;
+  return {
+    never: gap === null,
+    doneToday: gap === 0,
+    atRisk: gap === 1,
+    streak: gap === 0 || gap === 1 ? a.streak : 0,
+    best: a.best,
+    missed: gap === null || gap <= 1 ? 0 : gap - 1, // полных дней без нормы
+    todayCount: Math.min(todayCount, DAILY_GOAL),
+    left: Math.max(0, DAILY_GOAL - todayCount),
+  };
+}
 
-  const gap = a.lastDay ? daysBetween(a.lastDay, today) : null;
-  if (gap !== null && gap < 0) return false; // часы на устройстве переведены назад
-  a.first = gap === null;
+// Засчитывает ответы в дневную норму. Возвращает true, если норма выполнена только что.
+function countPractice(amount) {
+  const a = state.activity;
+  const today = dayKey(new Date());
+  if (a.today !== today) {
+    a.today = today;
+    a.todayCount = 0;
+  }
+  a.todayCount += amount;
+  if (a.todayCount < DAILY_GOAL || a.lastDone === today) return false;
+  const gap = a.lastDone ? daysBetween(a.lastDone, today) : null;
   a.streak = gap === 1 ? a.streak + 1 : 1;
-  a.missed = gap === null ? 0 : gap - 1;
   a.best = Math.max(a.best, a.streak);
-  a.lastDay = today;
-  save();
+  a.lastDone = today;
   return true;
 }
 
-// Слова начальника ЦУКС: по серии, если заходите каждый день, и по числу пропущенных дней
-function bossPhrase(a) {
+function celebrateGoal() {
+  const n = state.activity.streak;
+  toast(`Норма выполнена: ${n} ${plural(n, ['день', 'дня', 'дней'])} подряд`);
+}
+
+// Слова начальника ЦУКС: по серии, по невыполненной норме и по числу пропущенных дней
+function bossPhrase(st) {
   const days = (n) => `${n} ${plural(n, ['день', 'дня', 'дней'])}`;
-  if (a.first) return 'Заступаешь на первое дежурство. Нормативы сами себя не выучат — приступай.';
-  if (a.missed === 0) {
-    const tomorrow = `Завтра будет ${days(a.streak + 1)} подряд — не сорви.`;
-    if (a.streak >= 30) return `Месяц без пропусков. Такого дежурного хоть сейчас в старшие. ${tomorrow}`;
-    if (a.streak >= 14) return `Две недели без пропусков. На разборе поставлю тебя в пример. ${tomorrow}`;
-    if (a.streak >= 7) return `Неделя без пропусков. Вот это оперативная готовность. ${tomorrow}`;
-    if (a.streak >= 4) return `Заступаешь стабильно. Так и докладывай — без замечаний. ${tomorrow}`;
-    return `Хорошее начало, но один день — не система. ${tomorrow}`;
+  const left = `Осталось ${st.left} ${plural(st.left, ['вопрос', 'вопроса', 'вопросов'])}.`;
+  if (st.never) {
+    if (st.todayCount > 0) return `Первое дежурство идёт: ${st.todayCount} из ${DAILY_GOAL}. Добей норму — и серия пошла. ${left}`;
+    return `Заступаешь на первое дежурство. Норма — ${DAILY_GOAL} вопросов в день. Приступай.`;
   }
-  if (a.missed === 1) return 'Вчера тебя не было на связи. Серия обнулилась — восстанавливай, пока не вошло в привычку.';
-  if (a.missed <= 3) return `${days(a.missed)} тишины. В ЦУКС так не работают — догоняй.`;
-  if (a.missed <= 6) return `Тебя не было ${days(a.missed)}. Обстановка меняется каждые сутки, а ты — нет.`;
-  if (a.missed < MAX_MISSED_SHADE) return `${days(a.missed)} без тренировки. Готовь объяснительную или садись за вопросы.`;
-  return `${days(a.missed)} без доклада. Я уже решил, что ты сменил место службы. Срочно за тренажёр.`;
+  if (st.doneToday) {
+    const tomorrow = `Завтра будет ${days(st.streak + 1)} подряд — не сорви.`;
+    if (st.streak >= 30) return `Месяц без пропусков. Такого дежурного хоть сейчас в старшие. ${tomorrow}`;
+    if (st.streak >= 14) return `Две недели без пропусков. На разборе поставлю тебя в пример. ${tomorrow}`;
+    if (st.streak >= 7) return `Неделя без пропусков. Вот это оперативная готовность. ${tomorrow}`;
+    if (st.streak >= 4) return `Заступаешь стабильно. Так и докладывай — без замечаний. ${tomorrow}`;
+    return `Норма выполнена. Но один день — ещё не система. ${tomorrow}`;
+  }
+  if (st.atRisk) {
+    if (st.streak >= 7) return `Сегодня ты ещё не заступал. ${days(st.streak)} подряд сгорят в полночь — не подводи смену. ${left}`;
+    return `Норма на сегодня не выполнена. Серия ${days(st.streak)} сгорит в полночь. ${left}`;
+  }
+  if (st.missed === 1) return 'Вчера норма не выполнена — серия сгорела. Начинай заново, пока не вошло в привычку.';
+  if (st.missed <= 3) return `${days(st.missed)} тишины. В ЦУКС так не работают — догоняй.`;
+  if (st.missed <= 6) return `Тебя не было ${days(st.missed)}. Обстановка меняется каждые сутки, а ты — нет.`;
+  if (st.missed < MAX_MISSED_SHADE) return `${days(st.missed)} без тренировки. Готовь объяснительную или садись за вопросы.`;
+  return `${days(st.missed)} без доклада. Я уже решил, что ты сменил место службы. Срочно за тренажёр.`;
 }
 
 const STREAK_ICON = '<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21.5c3.9 0 6.5-2.7 6.5-6.4 0-3.3-2-5.6-3.6-7.6-.5 1.8-1.4 3-2.6 3.6.2-3.2-1.3-5.9-3.6-8.1.2 3-1.4 5.1-2.8 7.1-.9 1.4-1.4 3-1.4 4.9 0 3.8 2.6 6.5 6.5 6.5z"/><path d="M12 21.5c-1.7 0-2.8-1.2-2.8-2.8 0-1.8 1.4-2.9 2.3-4.3.9 1.1 3.3 2.4 3.3 4.4 0 1.5-1.1 2.7-2.8 2.7z"/></svg>';
@@ -427,7 +462,6 @@ function setBank(value) {
     finishExam(true);
     toast('Время экзамена истекло — результат сохранён');
   }
-  registerVisit();
 }
 
 function normalizeBank(raw) {
@@ -722,6 +756,7 @@ function finishExam(timeout) {
   });
   const score = items.filter((i) => i.ok).length;
   const threshold = effectiveThreshold(items.length);
+  const goalReached = countPractice(items.filter((i) => i.chosen !== null).length);
   state.lastExam = {
     date: new Date().toISOString(),
     durationMs: Math.min(Date.now() - ex.startedAt, EXAM_DURATION_MS),
@@ -734,6 +769,7 @@ function finishExam(timeout) {
   };
   state.exam = null;
   save();
+  if (goalReached) celebrateGoal();
 }
 
 function answeredCount() {
@@ -884,7 +920,7 @@ function renderHome() {
   }
 
   const s = statsFor(bank.questions.map((q) => q.id));
-  const a = state.activity;
+  const st = streakStatus();
   const mistakes = mistakeIds().length;
   const storageWarning = storage.kind === 'memory'
     ? '<div class="notice">Хранилище браузера недоступно (например, частный режим) — прогресс не сохранится после закрытия.</div>'
@@ -899,17 +935,20 @@ function renderHome() {
     title: APP_TITLE,
     html: `
       ${storageWarning}
-      <section class="card stats-card status-${Math.min(a.missed, MAX_MISSED_SHADE)}">
+      <section class="card stats-card status-${Math.min(st.missed, MAX_MISSED_SHADE)}${st.doneToday ? '' : ' is-pending'}">
         <div class="streak">
           <span class="streak-icon">${STREAK_ICON}</span>
           <div class="streak-main">
-            <span class="streak-value">${a.streak}</span>
-            <span class="streak-label">${plural(a.streak, ['день', 'дня', 'дней'])} подряд</span>
+            <div class="streak-count">
+              <span class="streak-value">${st.streak}</span>
+              <span class="streak-label">${plural(st.streak, ['день', 'дня', 'дней'])} подряд</span>
+            </div>
+            <span class="streak-today">${st.doneToday ? 'Норма выполнена' : `Норма на сегодня: ${st.todayCount} / ${DAILY_GOAL}`}</span>
           </div>
-          <span class="streak-best">Рекорд<br><strong>${a.best}</strong></span>
+          <span class="streak-best">Рекорд<br><strong>${st.best}</strong></span>
         </div>
         <blockquote class="boss-quote">
-          <p>${esc(bossPhrase(a))}</p>
+          <p>${esc(bossPhrase(st))}</p>
           <cite>— Начальник ЦУКС</cite>
         </blockquote>
         <div class="stats-row">
@@ -1252,6 +1291,7 @@ const ACTIONS = {
     const ok = cur.chosen === q.correct;
     if (ok) session.right += 1;
     recordAnswer(cur.id, ok);
+    if (countPractice(1)) celebrateGoal();
     save();
     render();
   },
@@ -1312,8 +1352,11 @@ const ACTIONS = {
     data.attempts.push({ date: new Date().toISOString(), grade: d.grade, text });
     data.draft = '';
     revealedScenarios.delete(d.id);
+    // Разобранная ситуация засчитывается как полная дневная норма
+    const goalReached = countPractice(DAILY_GOAL);
     save();
-    toast('Ответ и оценка сохранены');
+    if (goalReached) celebrateGoal();
+    else toast('Ответ и оценка сохранены');
     render();
   },
   'threshold-change'(d) {
@@ -1337,7 +1380,6 @@ const ACTIONS = {
     if (!confirm('Сбросить весь прогресс: статистику, ошибки, ответы на ситуации и результаты экзамена? Отменить будет нельзя.')) return;
     state = { ...defaultState(), settings: state.settings };
     session = null;
-    registerVisit();
     save();
     toast('Прогресс сброшен');
     render();
@@ -1410,7 +1452,8 @@ document.addEventListener('visibilitychange', () => {
     if (saveTimer) save();
   } else {
     tick();
-    if (bank && !lockedBank && registerVisit() && parseRoute().length === 0) render();
+    // Мог смениться день — обновляем серию на главной
+    if (bank && !lockedBank && parseRoute().length === 0) render();
   }
 });
 
