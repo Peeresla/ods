@@ -200,9 +200,100 @@ a { color: inherit; }
   .btn:not(:disabled):hover { filter: brightness(0.97); }
 }
 
+/* ---------- Отклик на нажатия ---------- */
+
+.btn,
+.option,
+.menu-item,
+a.list-item,
+.header-back,
+.header-settings,
+.attempt summary {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1), background-color 0.18s, border-color 0.18s, filter 0.18s, opacity 0.18s;
+}
+
+/* Нажатие: элемент чуть «проседает», быстро; отпускание — плавно пружинит назад */
 .btn:not(:disabled):active,
+.option:not(:disabled):active,
 .menu-item:active,
-.option:not(:disabled):active { transform: scale(0.985); }
+a.list-item:active,
+.attempt summary:active {
+  transform: scale(0.97);
+  transition-duration: 0.08s;
+}
+
+.btn:not(.btn-primary):not(:disabled):active,
+.option:not(:disabled):not(.is-selected):active { background-color: var(--surface-2); }
+
+.btn-primary:not(:disabled):active { filter: brightness(0.92); }
+
+.header-back,
+.header-settings { border-radius: 10px; }
+
+.header-back:active,
+.header-settings:active { opacity: 0.6; transition-duration: 0.08s; }
+
+.tap-layer {
+  position: absolute;
+  z-index: 30;
+  overflow: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease-out;
+}
+
+.tap-layer.is-leaving { opacity: 0; }
+
+.tap-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: currentColor;
+  transform: scale(0);
+  animation: tap-ripple 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes tap-ripple {
+  0% { transform: scale(0); opacity: 0.22; }
+  60% { opacity: 0.14; }
+  100% { transform: scale(1); opacity: 0; }
+}
+
+/* Ответ: правильный вариант «подпрыгивает», неверный покачивается */
+.option.is-correct.is-animated,
+.option.is-selected.is-animated { animation: option-pop 0.35s cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+.option.is-wrong.is-animated { animation: option-shake 0.4s ease-in-out; }
+
+@keyframes option-pop {
+  0% { transform: scale(0.97); }
+  50% { transform: scale(1.02); }
+  100% { transform: scale(1); }
+}
+
+@keyframes option-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
 
 /* ---------- Главная ---------- */
 
@@ -416,6 +507,7 @@ a { color: inherit; }
 .option.is-wrong::before { content: "✗ "; color: var(--bad); font-weight: 700; }
 
 .feedback {
+  animation: rise-in 0.28s ease-out;
   margin-top: 16px;
   padding: 14px 16px;
   border-radius: 12px;
@@ -562,9 +654,15 @@ a { color: inherit; }
   max-width: calc(100% - 32px);
   padding: 12px 18px;
   transform: translateX(-50%);
+  animation: toast-in 0.25s ease-out;
   border-radius: 12px;
   background: var(--navy);
   color: #fff;
   font-size: 15px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
 }

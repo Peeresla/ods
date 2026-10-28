@@ -27,6 +27,7 @@ let questionsById = new Map();
 let categoriesById = new Map();
 let state = null;         // прогресс пользователя
 let session = null;       // текущая тренировка (в памяти)
+let animateChoice = false; // только что выбран вариант ответа — анимировать его в следующей отрисовке
 const revealedScenarios = new Set();
 
 /* ================= Хранилище ================= */
@@ -651,6 +652,7 @@ function renderTrain(key = 'all') {
     let cls = '';
     if (answered && orig === q.correct) cls = ' is-correct';
     else if (answered && orig === cur.chosen) cls = ' is-wrong';
+    if (cls && animateChoice) cls += ' is-animated';
     return `<button type="button" class="option${cls}" data-action="train-answer" data-orig="${orig}"${answered ? ' disabled' : ''}>${esc(q.options[orig])}</button>`;
   }).join('');
 
@@ -793,7 +795,7 @@ function renderExam(arg) {
   const remaining = examRemaining();
 
   const options = ex.orders[id].map((orig) => `
-    <button type="button" class="option${chosen === orig ? ' is-selected' : ''}" data-action="exam-choose" data-orig="${orig}">${esc(q.options[orig])}</button>`).join('');
+    <button type="button" class="option${chosen === orig ? ` is-selected${animateChoice ? ' is-animated' : ''}` : ''}" data-action="exam-choose" data-orig="${orig}">${esc(q.options[orig])}</button>`).join('');
 
   return {
     title: 'Экзамен',
@@ -1204,7 +1206,9 @@ function render(scrollTop) {
   backEl.hidden = !view.back;
   if (view.back) backEl.setAttribute('href', view.back);
   settingsLinkEl.hidden = Boolean(view.back) || Boolean(lockedBank);
+  fadeTapLayers();
   mainEl.innerHTML = view.html;
+  animateChoice = false;
   if (scrollTop) window.scrollTo(0, 0);
   if (view.after) view.after();
 }
@@ -1290,6 +1294,7 @@ const ACTIONS = {
     cur.chosen = Number(d.orig);
     const ok = cur.chosen === q.correct;
     if (ok) session.right += 1;
+    animateChoice = true;
     recordAnswer(cur.id, ok);
     if (countPractice(1)) celebrateGoal();
     save();
@@ -1319,6 +1324,7 @@ const ACTIONS = {
       return;
     }
     state.exam.answers[state.exam.ids[state.exam.pos]] = Number(d.orig);
+    animateChoice = true;
     save();
     render();
   },
@@ -1433,6 +1439,67 @@ document.addEventListener('submit', async (e) => {
   setBank(result);
   render(true);
 });
+
+/* ================= Отклик на нажатия ================= */
+
+// Волна из точки касания в форме нажатого элемента. Слой вынесен в body и привязан
+// к странице, а не к экрану: анимация доигрывает после перерисовки и прокручивается с содержимым.
+const TAPPABLE = '.btn, .option, .menu-item, a.list-item, .header-back, .header-settings, .attempt summary';
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+let tapLayer = null;
+
+document.addEventListener('pointerdown', (e) => {
+  if (reducedMotion.matches || e.button > 0) return;
+  const el = e.target.closest(TAPPABLE);
+  if (!el || el.disabled) return;
+
+  const rect = el.getBoundingClientRect();
+  const style = getComputedStyle(el);
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const size = 2 * Math.hypot(Math.max(x, rect.width - x), Math.max(y, rect.height - y));
+
+  const layer = document.createElement('span');
+  layer.className = 'tap-layer';
+  Object.assign(layer.style, {
+    left: rect.left + window.scrollX + 'px',
+    top: rect.top + window.scrollY + 'px',
+    width: rect.width + 'px',
+    height: rect.height + 'px',
+    borderRadius: style.borderRadius,
+    color: el.classList.contains('btn-primary') ? '#fff' : style.color,
+  });
+  const ripple = document.createElement('span');
+  ripple.className = 'tap-ripple';
+  Object.assign(ripple.style, {
+    width: size + 'px',
+    height: size + 'px',
+    left: x - size / 2 + 'px',
+    top: y - size / 2 + 'px',
+  });
+  layer.appendChild(ripple);
+  document.body.appendChild(layer);
+  tapLayer = layer;
+  ripple.addEventListener('animationend', () => layer.remove());
+  setTimeout(() => layer.remove(), 1000);
+});
+
+// Экран перерисовался — под волной уже другие элементы, плавно её гасим
+function fadeTapLayers() {
+  for (const layer of document.querySelectorAll('.tap-layer')) {
+    layer.classList.add('is-leaving');
+    setTimeout(() => layer.remove(), 160);
+  }
+}
+
+// Палец пошёл прокручивать страницу — это не нажатие, волну убираем
+document.addEventListener('pointercancel', () => {
+  if (tapLayer) tapLayer.remove();
+  tapLayer = null;
+});
+
+// Без этого Safari на iPhone не применяет стили :active
+document.addEventListener('touchstart', () => {}, { passive: true });
 
 importInput.addEventListener('change', () => {
   const file = importInput.files && importInput.files[0];
