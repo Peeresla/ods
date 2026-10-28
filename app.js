@@ -165,6 +165,7 @@ function defaultState() {
     exam: null,
     lastExam: null,
     activity: defaultActivity(),
+    records: { correctRun: 0 }, // лучшая серия верных ответов подряд в тренировке
   };
 }
 
@@ -239,6 +240,8 @@ function normalizeState(raw) {
   if (isPlainObject(raw.lastExam) && Array.isArray(raw.lastExam.items)) {
     out.lastExam = raw.lastExam;
   }
+
+  if (isPlainObject(raw.records)) out.records.correctRun = toCount(raw.records.correctRun);
 
   const a = raw.activity;
   if (isPlainObject(a)) {
@@ -614,13 +617,26 @@ function orderByPriority(ids) {
   });
 }
 
+function sessionIds(key) {
+  if (key === 'all') return bank.questions.map((q) => q.id);
+  if (key === 'mistakes') return mistakeIds();
+  return questionsInCategory(key);
+}
+
+// Тренировка идёт без конца: вопросы закончились — начинается новый круг, серия продолжается.
+// answered — отвечено подряд в этой тренировке, correctRun — верных подряд (для рекорда).
 function createSession(key) {
-  let ids;
-  if (key === 'all') ids = bank.questions.map((q) => q.id);
-  else if (key === 'mistakes') ids = mistakeIds();
-  else if (categoriesById.has(key)) ids = questionsInCategory(key);
-  else return { key, queue: [], pos: 0, right: 0, current: null, unknown: true };
-  return { key, queue: orderByPriority(ids), pos: 0, right: 0, current: null };
+  const base = { key, pos: 0, current: null, answered: 0, correctRun: 0, recordBeaten: false };
+  if (key !== 'all' && key !== 'mistakes' && !categoriesById.has(key)) return { ...base, queue: [], unknown: true };
+  return { ...base, queue: orderByPriority(sessionIds(key)) };
+}
+
+function startNextRound() {
+  const lastId = session.queue[session.queue.length - 1];
+  session.queue = orderByPriority(sessionIds(session.key));
+  session.pos = 0;
+  // Не задавать тот же вопрос дважды подряд на стыке кругов
+  if (session.queue.length > 1 && session.queue[0] === lastId) session.queue.push(session.queue.shift());
 }
 
 function renderTrain(key = 'all') {
@@ -635,7 +651,12 @@ function renderTrain(key = 'all') {
     return { title, back, html: emptyState(text) };
   }
 
-  if (session.pos >= session.queue.length) return { title, back, html: trainSummaryHtml(key) };
+  if (session.pos >= session.queue.length) {
+    startNextRound();
+    if (!session.queue.length) {
+      return { title, back, html: emptyState(`Ошибок больше нет. Отвечено подряд: ${session.answered}.`) };
+    }
+  }
 
   const id = session.queue[session.pos];
   const q = questionsById.get(id);
@@ -646,7 +667,6 @@ function renderTrain(key = 'all') {
   const cur = session.current;
   const answered = cur.chosen !== null;
   const isRight = answered && cur.chosen === q.correct;
-  const isLast = session.pos === session.queue.length - 1;
 
   const options = cur.order.map((orig) => {
     let cls = '';
@@ -663,15 +683,21 @@ function renderTrain(key = 'all') {
       ${q.source ? `<p class="source">Источник: ${esc(q.source)}</p>` : ''}
     </section>
     <div class="action-bar">
-      <button type="button" class="btn btn-primary" data-action="train-next">${isLast ? 'Завершить' : 'Дальше'}</button>
+      <button type="button" class="btn btn-primary" data-action="train-next">Дальше</button>
     </div>` : '';
 
   const html = `
-    <div class="quiz-meta">
-      <span>Вопрос ${session.pos + 1} из ${session.queue.length}</span>
-      ${categoryTitle(q.category) ? `<span class="tag">${esc(categoryTitle(q.category))}</span>` : ''}
+    <div class="run-stats">
+      <div class="run-stat">
+        <span class="run-value${answered && animateChoice ? ' is-bumped' : ''}">${session.answered}</span>
+        <span class="run-label">отвечено подряд</span>
+      </div>
+      <div class="run-stat run-best">
+        <span class="run-value${session.recordBeaten && isRight && animateChoice ? ' is-bumped' : ''}">${state.records.correctRun}</span>
+        <span class="run-label">рекорд верных подряд</span>
+      </div>
     </div>
-    <progress class="progress" max="${session.queue.length}" value="${session.pos + (answered ? 1 : 0)}"></progress>
+    ${categoryTitle(q.category) ? `<span class="tag">${esc(categoryTitle(q.category))}</span>` : ''}
     <h2 class="question-text">${esc(q.question)}</h2>
     <div class="options">${options}</div>
     ${feedback}`;
@@ -685,24 +711,6 @@ function renderTrain(key = 'all') {
       if (fb) fb.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } : null,
   };
-}
-
-function trainSummaryHtml(key) {
-  const total = session.queue.length;
-  const pct = Math.round((session.right / total) * 100);
-  const extra = key === 'mistakes'
-    ? `<p class="muted">Осталось в «Ошибках»: ${mistakeIds().length}</p>`
-    : '';
-  return `
-    <section class="card result-card">
-      <p class="result-verdict">Готово</p>
-      <p class="result-score">Верно ${session.right} из ${total} (${pct}%)</p>
-      ${extra}
-    </section>
-    <div class="stack spaced">
-      <button type="button" class="btn btn-primary btn-block" data-action="train-restart">Пройти ещё раз</button>
-      <a class="btn btn-block" href="#/">На главную</a>
-    </div>`;
 }
 
 /* ================= Экзамен ================= */
@@ -1324,21 +1332,27 @@ const ACTIONS = {
     const q = questionsById.get(cur.id);
     cur.chosen = Number(d.orig);
     const ok = cur.chosen === q.correct;
-    if (ok) session.right += 1;
+    session.answered += 1;
+    session.correctRun = ok ? session.correctRun + 1 : 0;
+    if (!ok) session.recordBeaten = false; // новая серия может снова побить рекорд
+    let newRecord = false;
+    if (session.correctRun > state.records.correctRun) {
+      newRecord = !session.recordBeaten && state.records.correctRun > 0;
+      state.records.correctRun = session.correctRun;
+      session.recordBeaten = true;
+    }
     animateChoice = true;
     recordAnswer(cur.id, ok);
-    if (countPractice(1)) celebrateGoal();
+    const goalReached = countPractice(1);
     save();
+    if (goalReached) celebrateGoal();
+    else if (newRecord) toast(`Новый рекорд: ${session.correctRun} ${plural(session.correctRun, ['верный', 'верных', 'верных'])} подряд`);
     render();
   },
   'train-next'() {
     session.pos += 1;
     session.current = null;
     render(true, 'next');
-  },
-  'train-restart'() {
-    session = null;
-    render(true, 'fade');
   },
   'go-mistakes-training'() {
     session = null;
@@ -1423,10 +1437,23 @@ const ACTIONS = {
   },
 };
 
+async function confirmLeaveTraining(hash) {
+  const n = session.answered;
+  const ok = await confirmModal({
+    title: 'Выйти из тренировки?',
+    text: `Серия из ${n} ${plural(n, ['отвеченного вопроса', 'отвеченных вопросов', 'отвеченных вопросов'])} подряд прервётся и не засчитается — в следующий раз счёт начнётся с нуля. Сами ответы уже учтены в статистике.`,
+    ok: 'Выйти',
+    cancel: 'Остаться',
+  });
+  if (!ok) return;
+  session = null;
+  navigate(hash);
+}
+
 // Переходы на другой экран выполняются после короткой анимации нажатия —
 // иначе экран сменяется мгновенно и не видно, куда нажал.
 const PRESS_DELAY_MS = 140;
-const DELAYED_ACTIONS = new Set(['train-next', 'train-restart', 'go-mistakes-training', 'exam-start', 'exam-next', 'exam-prev', 'scenario-reveal']);
+const DELAYED_ACTIONS = new Set(['train-next', 'go-mistakes-training', 'exam-start', 'exam-next', 'exam-prev', 'scenario-reveal']);
 let pressPending = false;
 
 function afterPress(el, fn) {
@@ -1450,6 +1477,10 @@ document.addEventListener('click', (e) => {
   const link = e.target.closest('a[href^="#"]');
   if (!el && link) {
     e.preventDefault();
+    if (link === backEl && parseRoute()[0] === 'train' && session && session.answered > 0) {
+      confirmLeaveTraining(link.getAttribute('href'));
+      return;
+    }
     afterPress(link, () => navigate(link.getAttribute('href')));
     return;
   }
@@ -1502,6 +1533,46 @@ document.addEventListener('submit', async (e) => {
   lockedBank = null;
   setBank(result);
   render(true, 'fade');
+});
+
+/* ================= Всплывающее окно ================= */
+
+const modalEl = document.getElementById('modal');
+let modalResolve = null;
+
+// Окно подтверждения в стиле приложения. Возвращает Promise<boolean>.
+function confirmModal({ title, text, ok, cancel }) {
+  if (modalResolve) modalResolve(false);
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-text').textContent = text;
+  modalEl.querySelector('[data-modal="ok"]').textContent = ok;
+  modalEl.querySelector('[data-modal="cancel"]').textContent = cancel;
+  modalEl.hidden = false;
+  modalEl.classList.remove('is-closing');
+  modalEl.querySelector('[data-modal="cancel"]').focus({ preventScroll: true });
+  return new Promise((resolve) => { modalResolve = resolve; });
+}
+
+function closeModal(result) {
+  if (!modalResolve) return;
+  const resolve = modalResolve;
+  modalResolve = null;
+  modalEl.classList.add('is-closing');
+  setTimeout(() => {
+    modalEl.hidden = true;
+    modalEl.classList.remove('is-closing');
+  }, reducedMotion.matches ? 0 : 180);
+  resolve(result);
+}
+
+modalEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-modal]');
+  if (btn) closeModal(btn.dataset.modal === 'ok');
+  else if (e.target === modalEl) closeModal(false);
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModal(false);
 });
 
 /* ================= Отклик на нажатия ================= */

@@ -46,6 +46,17 @@
   </main>
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <div class="modal-backdrop" id="modal" hidden>
+    <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-text">
+      <h2 class="modal-title" id="modal-title"></h2>
+      <p class="modal-text" id="modal-text"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-danger" data-modal="ok"></button>
+        <button type="button" class="btn btn-primary" data-modal="cancel"></button>
+      </div>
+    </div>
+  </div>
   <input type="file" id="import-input" accept="application/json,.json" hidden>
 
   <noscript><p class="empty-state">Для работы приложения нужен JavaScript.</p></noscript>
