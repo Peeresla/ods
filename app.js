@@ -1392,13 +1392,46 @@ const ACTIONS = {
   },
 };
 
+// Переходы на другой экран выполняются после короткой анимации нажатия —
+// иначе экран сменяется мгновенно и не видно, куда нажал.
+const PRESS_DELAY_MS = 200;
+const DELAYED_ACTIONS = new Set(['train-next', 'train-restart', 'go-mistakes-training', 'exam-start', 'exam-next', 'exam-prev', 'scenario-reveal']);
+let pressPending = false;
+
+function afterPress(el, fn) {
+  if (reducedMotion.matches) {
+    fn();
+    return;
+  }
+  if (pressPending) return;
+  pressPending = true;
+  el.classList.remove('is-pressed');
+  void el.offsetWidth; // перезапуск анимации при повторном нажатии
+  el.classList.add('is-pressed');
+  setTimeout(() => {
+    pressPending = false;
+    fn();
+  }, PRESS_DELAY_MS);
+}
+
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
+  const link = e.target.closest('a[href^="#"]');
+  if (!el && link) {
+    e.preventDefault();
+    afterPress(link, () => navigate(link.getAttribute('href')));
+    return;
+  }
   if (!el || el.disabled) return;
   const action = ACTIONS[el.dataset.action];
   if (!action) return;
   e.preventDefault();
-  action(el.dataset);
+  if (DELAYED_ACTIONS.has(el.dataset.action)) {
+    const data = { ...el.dataset };
+    afterPress(el, () => action(data));
+  } else {
+    action(el.dataset);
+  }
 });
 
 document.addEventListener('input', (e) => {
@@ -1467,7 +1500,9 @@ document.addEventListener('pointerdown', (e) => {
     width: rect.width + 'px',
     height: rect.height + 'px',
     borderRadius: style.borderRadius,
-    color: el.classList.contains('btn-primary') ? '#fff' : style.color,
+    color: el.classList.contains('btn-primary') ? '#fff'
+      : el.matches('.menu-item, a.list-item') ? getComputedStyle(document.documentElement).getPropertyValue('--accent')
+        : style.color,
   });
   const ripple = document.createElement('span');
   ripple.className = 'tap-ripple';

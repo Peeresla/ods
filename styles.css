@@ -237,6 +237,32 @@ a.list-item:active,
 .header-back:active,
 .header-settings:active { opacity: 0.6; transition-duration: 0.08s; }
 
+/* Нажатие, после которого открывается другой экран: заметный «клик» и подсветка */
+.is-pressed { animation: press 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+@keyframes press {
+  0% { transform: scale(1); }
+  40% { transform: scale(0.95); }
+  100% { transform: scale(1); }
+}
+
+.menu-item.is-pressed,
+a.list-item.is-pressed {
+  border-color: var(--accent);
+  background-color: var(--accent-bg);
+}
+
+.menu-item.is-pressed .menu-icon {
+  color: var(--on-accent);
+  background: var(--accent);
+  transition: background-color 0.12s, color 0.12s;
+}
+
+.menu-item.is-pressed .menu-icon .icon-accent { stroke: currentColor; }
+
+.header-back.is-pressed,
+.header-settings.is-pressed { animation: none; opacity: 0.6; }
+
 .tap-layer {
   position: absolute;
   z-index: 30;
