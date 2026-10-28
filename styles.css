@@ -744,6 +744,9 @@ a.list-item.is-pressed {
 
 /* ---------- Загрузка: роза ветров ---------- */
 
+/* Сценарий ~4 с: роза появляется и доворачивается → прорисовывается контур (кольцо, затем лучи)
+   → заполняется снизу вверх → надпись и свечение → роза «дышит» → заставка растворяется. */
+
 .splash {
   position: fixed;
   inset: 0;
@@ -752,10 +755,10 @@ a.list-item.is-pressed {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 20px;
+  gap: 22px;
   color: #fff;
-  background: var(--navy);
-  transition: opacity 0.35s ease, visibility 0.35s;
+  background: radial-gradient(circle at 50% 42%, #1b4380 0%, var(--navy) 60%);
+  transition: opacity 0.45s ease, visibility 0.45s;
 }
 
 .splash.is-hidden {
@@ -766,40 +769,93 @@ a.list-item.is-pressed {
 
 .splash-rose {
   position: relative;
-  width: 128px;
-  height: 128px;
-  transition: transform 0.35s ease;
-  animation: rose-breathe 1.4s ease-in-out 0.9s infinite;
+  width: 140px;
+  height: 140px;
+  animation: rose-appear 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transition: transform 0.45s ease;
 }
 
-.splash.is-hidden .splash-rose { transform: scale(1.12); }
+.splash.is-hidden .splash-rose { transform: scale(1.15); }
 
-.splash-rose svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.rose-motion {
+  position: absolute;
+  inset: 0;
+  animation:
+    rose-turn 1.8s cubic-bezier(0.3, 0, 0.2, 1) 0.1s both,
+    rose-breathe 1.6s ease-in-out 2.8s infinite;
+}
+
+.rose-motion svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+.rose-glow {
+  position: absolute;
+  inset: -30%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 138, 42, 0.45) 0%, rgba(255, 138, 42, 0) 65%);
+  opacity: 0;
+  animation: glow-in 0.9s ease-out 2.4s forwards;
+}
 
 /* Заполнение снизу вверх */
 .rose-fill {
   -webkit-clip-path: inset(100% 0 0 0);
   clip-path: inset(100% 0 0 0);
-  animation: rose-fill 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.2s forwards;
+  animation: rose-fill 1.5s cubic-bezier(0.45, 0, 0.2, 1) 1.3s forwards;
 }
 
 .rose-light { fill: #ff9a3d; }
 .rose-dark { fill: #e0670f; }
 
-/* Контур прорисовывается линией */
-.rose-outline path {
+/* Едва заметный силуэт — видно, как роза появляется, ещё до прорисовки контура */
+.rose-ghost { stroke-opacity: 0.22; }
+
+/* Контур прорисовывается линией: сначала кольцо, затем лучи */
+.rose-ring,
+.rose-star {
   stroke-dasharray: 1;
   stroke-dashoffset: 1;
-  animation: rose-draw 0.5s ease-out forwards;
+  animation: rose-draw 0.9s ease-in-out 0.25s forwards;
 }
 
+.rose-star { animation-duration: 1.1s; animation-delay: 0.55s; }
+
 .splash-title {
-  font-size: 18px;
+  font-size: 19px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.03em;
   opacity: 0;
-  animation: fade-up 0.4s ease-out 0.35s forwards;
+  animation: fade-up 0.6s ease-out 2.4s forwards;
 }
+
+/* Полоска загрузки на всё время заставки */
+.splash-progress {
+  position: relative;
+  width: 140px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.splash-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: #ff8a2a;
+  transform: scaleX(0);
+  transform-origin: left;
+  animation: splash-progress 3.7s cubic-bezier(0.4, 0, 0.3, 1) 0.2s forwards;
+}
+
+@keyframes rose-appear {
+  from { opacity: 0; scale: 0.6; }
+  to { opacity: 1; scale: 1; }
+}
+
+@keyframes rose-turn { from { rotate: -60deg; } to { rotate: 0deg; } }
+
+@keyframes rose-breathe { 50% { scale: 1.05; } }
 
 @keyframes rose-fill {
   to {
@@ -810,10 +866,11 @@ a.list-item.is-pressed {
 
 @keyframes rose-draw { to { stroke-dashoffset: 0; } }
 
-@keyframes rose-breathe { 50% { transform: scale(1.05); } }
+@keyframes glow-in { to { opacity: 1; } }
+
+@keyframes splash-progress { to { transform: scaleX(1); } }
 
 @keyframes fade-up {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 0.9; transform: none; }
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 0.95; transform: none; }
 }
-

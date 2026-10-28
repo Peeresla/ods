@@ -1597,7 +1597,7 @@ document.addEventListener('visibilitychange', () => {
 
 /* ================= Запуск ================= */
 
-const SPLASH_MIN_MS = 850; // роза ветров успевает прорисоваться и заполниться
+const SPLASH_MIN_MS = 4000; // заставка проигрывается целиком, не меньше 4 с
 
 function hideSplash() {
   const el = document.getElementById('splash');
@@ -1605,7 +1605,7 @@ function hideSplash() {
   const wait = reducedMotion.matches ? 0 : Math.max(0, SPLASH_MIN_MS - performance.now());
   setTimeout(() => {
     el.classList.add('is-hidden');
-    setTimeout(() => el.remove(), 500);
+    setTimeout(() => el.remove(), 600);
   }, wait);
 }
 
