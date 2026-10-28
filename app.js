@@ -1543,24 +1543,22 @@ async function confirmLeaveTraining(hash) {
 
 // Переходы на другой экран выполняются после короткой анимации нажатия —
 // иначе экран сменяется мгновенно и не видно, куда нажал.
-const PRESS_DELAY_MS = 140;
 const DELAYED_ACTIONS = new Set(['train-next', 'go-mistakes-training', 'exam-start', 'exam-next', 'exam-prev', 'scenario-reveal']);
 let pressPending = false;
 
+// Переход начинается, когда нажатие успело проиграться (см. MIN_HOLD_MS)
 function afterPress(el, fn) {
-  if (reducedMotion.matches) {
+  if (pressPending) return;
+  const wait = lastPress.el === el ? Math.max(0, lastPress.at + MIN_HOLD_MS - performance.now()) : 0;
+  if (wait === 0 || reducedMotion.matches) {
     fn();
     return;
   }
-  if (pressPending) return;
   pressPending = true;
-  el.classList.remove('is-pressed');
-  void el.offsetWidth; // перезапуск анимации при повторном нажатии
-  el.classList.add('is-pressed');
   setTimeout(() => {
     pressPending = false;
     fn();
-  }, PRESS_DELAY_MS);
+  }, wait);
 }
 
 document.addEventListener('click', (e) => {
@@ -1671,13 +1669,40 @@ document.addEventListener('keydown', (e) => {
 // Волна из точки касания в форме нажатого элемента. Слой вынесен в body и привязан
 // к странице, а не к экрану: анимация доигрывает после перерисовки и прокручивается с содержимым.
 const TAPPABLE = '.btn, .option, .menu-item, a.list-item, .header-back, .header-settings, .attempt summary';
+const NO_RIPPLE = '.menu-item, a.list-item, .header-back, .header-settings'; // плитки и шапка — спокойный отклик как в iOS
+const MIN_HOLD_MS = 130; // даже на быстром тапе элемент успевает плавно «просесть»
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 let tapLayer = null;
+let heldEl = null;
+let releaseTimer = null;
+let lastPress = { el: null, at: 0 };
+
+// Состояние «нажато» держится, пока палец на элементе, и снимается не раньше MIN_HOLD_MS:
+// одно непрерывное движение вниз и обратно, без перезапуска анимации.
+function holdStart(el) {
+  clearTimeout(releaseTimer);
+  if (heldEl && heldEl !== el) heldEl.classList.remove('is-held');
+  heldEl = el;
+  lastPress = { el, at: performance.now() };
+  el.classList.add('is-held');
+}
+
+function holdEnd(immediate) {
+  if (!heldEl) return;
+  const el = heldEl;
+  heldEl = null;
+  const wait = immediate ? 0 : Math.max(0, lastPress.at + MIN_HOLD_MS - performance.now());
+  releaseTimer = setTimeout(() => el.classList.remove('is-held'), wait);
+}
+
+document.addEventListener('pointerup', () => holdEnd(false));
 
 document.addEventListener('pointerdown', (e) => {
-  if (reducedMotion.matches || e.button > 0) return;
+  if (e.button > 0) return;
   const el = e.target.closest(TAPPABLE);
   if (!el || el.disabled) return;
+  holdStart(el);
+  if (reducedMotion.matches || el.matches(NO_RIPPLE)) return;
 
   const rect = el.getBoundingClientRect();
   const style = getComputedStyle(el);
@@ -1693,9 +1718,7 @@ document.addEventListener('pointerdown', (e) => {
     width: rect.width + 'px',
     height: rect.height + 'px',
     borderRadius: style.borderRadius,
-    color: el.classList.contains('btn-primary') ? '#fff'
-      : el.matches('.menu-item, a.list-item') ? getComputedStyle(document.documentElement).getPropertyValue('--accent')
-        : style.color,
+    color: el.classList.contains('btn-primary') ? '#fff' : style.color,
   });
   const ripple = document.createElement('span');
   ripple.className = 'tap-ripple';
@@ -1720,14 +1743,12 @@ function fadeTapLayers() {
   }
 }
 
-// Палец пошёл прокручивать страницу — это не нажатие, волну убираем
+// Палец пошёл прокручивать страницу — это не нажатие: отпускаем элемент и убираем волну
 document.addEventListener('pointercancel', () => {
+  holdEnd(true);
   if (tapLayer) tapLayer.remove();
   tapLayer = null;
 });
-
-// Без этого Safari на iPhone не применяет стили :active
-document.addEventListener('touchstart', () => {}, { passive: true });
 
 importInput.addEventListener('change', () => {
   const file = importInput.files && importInput.files[0];

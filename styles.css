@@ -203,6 +203,8 @@ a { color: inherit; }
 
 /* ---------- Отклик на нажатия ---------- */
 
+/* Одно непрерывное движение, как в iOS: пока палец на элементе (класс is-held ставит app.js),
+   он плавно «проседает»; отпустили — мягко пружинит обратно с лёгким перелётом. */
 .btn,
 .option,
 .menu-item,
@@ -214,55 +216,39 @@ a.list-item,
   user-select: none;
   -webkit-touch-callout: none;
   touch-action: manipulation;
-  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1), background-color 0.18s, border-color 0.18s, filter 0.18s, opacity 0.18s;
+  transition:
+    transform 0.4s cubic-bezier(0.34, 1.4, 0.64, 1),
+    background-color 0.3s ease-out,
+    filter 0.3s ease-out,
+    opacity 0.3s ease-out;
 }
 
-/* Нажатие: элемент чуть «проседает», быстро; отпускание — плавно пружинит назад */
-.btn:not(:disabled):active,
-.option:not(:disabled):active,
-.menu-item:active,
-a.list-item:active,
-.attempt summary:active {
+.btn.is-held,
+.option.is-held,
+.menu-item.is-held,
+a.list-item.is-held,
+.attempt summary.is-held {
   transform: scale(0.97);
-  transition-duration: 0.08s;
+  transition:
+    transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 0.12s ease-out,
+    filter 0.12s ease-out;
 }
 
-.btn:not(.btn-primary):not(:disabled):active,
-.option:not(:disabled):not(.is-selected):active { background-color: var(--surface-2); }
+/* Плитки и карточки — слегка темнеют, как ячейки в iOS */
+.menu-item.is-held,
+a.list-item.is-held { background-color: var(--surface-2); }
 
-.btn-primary:not(:disabled):active { filter: brightness(0.92); }
+.btn:not(.btn-primary).is-held,
+.option:not(.is-selected).is-held { background-color: var(--surface-2); }
+
+.btn-primary.is-held { filter: brightness(0.92); }
 
 .header-back,
 .header-settings { border-radius: 10px; }
 
-.header-back:active,
-.header-settings:active { opacity: 0.6; transition-duration: 0.08s; }
-
-/* Нажатие, после которого открывается другой экран: заметный «клик» и подсветка */
-.is-pressed { animation: press 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
-
-@keyframes press {
-  0% { transform: scale(1); }
-  40% { transform: scale(0.95); }
-  100% { transform: scale(1); }
-}
-
-.menu-item.is-pressed,
-a.list-item.is-pressed {
-  border-color: var(--accent);
-  background-color: var(--accent-bg);
-}
-
-.menu-item.is-pressed .menu-icon {
-  color: var(--on-accent);
-  background: var(--accent);
-  transition: background-color 0.12s, color 0.12s;
-}
-
-.menu-item.is-pressed .menu-icon .icon-accent { stroke: currentColor; }
-
-.header-back.is-pressed,
-.header-settings.is-pressed { animation: none; opacity: 0.6; }
+.header-back.is-held,
+.header-settings.is-held { opacity: 0.55; transition: opacity 0.1s ease-out; }
 
 .tap-layer {
   position: absolute;
